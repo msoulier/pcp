@@ -5,6 +5,7 @@ package main
 // - add estimated time to completion
 // - add more cp-like behaviour
 // - add -R switch
+// - tune progress_freq and resolution for input file size
 import (
     "os"
     "io"
