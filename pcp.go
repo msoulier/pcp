@@ -1,6 +1,10 @@
 package main
 
 // A progress-enhanced version of cp that shows progress while copying.
+// TODO:
+// - add estimated time to completion
+// - add more cp-like behaviour
+// - add -R switch
 import (
     "os"
     "io"
