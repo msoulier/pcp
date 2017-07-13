@@ -4,6 +4,7 @@ package main
 import (
     "os"
     "io"
+    mlib "github.com/msoulier/mlib"
 )
 
 var copysize int64 = 4096
@@ -51,6 +52,7 @@ func main() {
     }
     source := os.Args[1]
     dest := os.Args[2]
+    var bytes_copied int64 = 0
 
     // A channel for comms with the copying goroutine
     progress := make(chan int64, 1)
@@ -63,11 +65,12 @@ func main() {
     }()
 
     for {
-        bytes_copied := <-progress
-        println(bytes_copied, "bytes copied")
-        if bytes_copied == 0 {
+        copied := <-progress
+        if copied == 0 {
             break
         }
+        bytes_copied += copied
+        println("copied", mlib.Bytes2human(bytes_copied))
     }
 
     os.Exit(0)
