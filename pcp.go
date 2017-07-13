@@ -4,10 +4,13 @@ package main
 import (
     "os"
     "io"
+    "fmt"
+    "math"
     mlib "github.com/msoulier/mlib"
 )
 
 var copysize int64 = 4096
+var progress_freq = 1000
 
 // Copy file contents from source to destination.
 func copyFile(src, dst string, progress chan int64) (err error) {
@@ -54,6 +57,12 @@ func main() {
     dest := os.Args[2]
     var bytes_copied int64 = 0
 
+    // stat the source file to get its size
+    source_size, err := mlib.StatfileSize(source)
+    if err != nil {
+        panic(err)
+    }
+
     // A channel for comms with the copying goroutine
     progress := make(chan int64, 1)
 
@@ -64,14 +73,22 @@ func main() {
         }
     }()
 
+    i := 0
+    fmt.Printf("\n")
     for {
         copied := <-progress
+        bytes_copied += copied
+        percent := (float64(bytes_copied) / float64(source_size)) * 100
+        if i % progress_freq == 0 || copied == 0 {
+            fmt.Printf("\r                                        \r")
+            fmt.Printf("progress: %d%%                           ", int64(math.Floor(percent)))
+        }
+        i++
         if copied == 0 {
             break
         }
-        bytes_copied += copied
-        println("copied", mlib.Bytes2human(bytes_copied))
     }
+    fmt.Printf("\ndone\n")
 
     os.Exit(0)
 }
