@@ -3,7 +3,6 @@ package main
 // A progress-enhanced version of cp that shows progress while copying.
 // TODO:
 // - add estimated time to completion
-// - add more cp-like behaviour
 // - add -R switch
 // - tune progress_freq and resolution for input file size
 import (
@@ -11,6 +10,7 @@ import (
     "io"
     "fmt"
     "math"
+    "path"
     mlib "github.com/msoulier/mlib"
 )
 
@@ -19,6 +19,7 @@ var progress_freq = 1000
 
 // Copy file contents from source to destination.
 func copyFile(src, dst string, progress chan int64) (err error) {
+    var bytes_copied int64 = 0
     in, err := os.Open(src)
     if err != nil {
         return
@@ -35,19 +36,28 @@ func copyFile(src, dst string, progress chan int64) (err error) {
             err = cerr
         }
     }()
+    i := 0
     for {
         var bytes int64 = 0
         bytes, err = io.CopyN(out, in, copysize)
         if err != nil {
             if err == io.EOF {
+                if bytes_copied > 0 {
+                    progress <- bytes_copied
+                }
                 progress <- 0
                 break
             } else {
                 return
             }
         }
-        // Report progress
-        progress <- bytes
+        bytes_copied += bytes
+        // Report progress at regular intervals.
+        i++
+        if i % progress_freq == 0 {
+            progress <- bytes_copied
+            bytes_copied = 0
+        }
     }
     err = out.Sync()
     return
@@ -61,11 +71,21 @@ func main() {
     source := os.Args[1]
     dest := os.Args[2]
     var bytes_copied int64 = 0
+    var source_size int64 = 0
+
+    // If dest is a directory, add the name of the file to it.
+    if stat, err := os.Stat(dest); err == nil && stat.IsDir() {
+        // dest is a directory
+        source_name := path.Base(source)
+        dest = path.Join(dest, source_name)
+    }
+    // If it doesn't exist, we'll create it as a file. This is standard cp behaviour.
 
     // stat the source file to get its size
-    source_size, err := mlib.StatfileSize(source)
-    if err != nil {
+    if stat, err := os.Stat(source); err != nil {
         panic(err)
+    } else {
+        source_size = stat.Size()
     }
 
     // A channel for comms with the copying goroutine
@@ -78,17 +98,13 @@ func main() {
         }
     }()
 
-    i := 0
-    fmt.Printf("\n")
     for {
         copied := <-progress
         bytes_copied += copied
         percent := (float64(bytes_copied) / float64(source_size)) * 100
-        if i % progress_freq == 0 || copied == 0 {
-            fmt.Printf("\r                                        \r")
-            fmt.Printf("progress: %d%%                           ", int64(math.Floor(percent)))
-        }
-        i++
+        fmt.Printf("\r                                        \r")
+        fmt.Printf("progress: %s copied: %d%%                           ",
+            mlib.Bytes2human(bytes_copied), int64(math.Floor(percent)))
         if copied == 0 {
             break
         }
