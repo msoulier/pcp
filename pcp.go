@@ -12,6 +12,7 @@ import (
     "math"
     "path"
     mlib "github.com/msoulier/mlib"
+    "time"
 )
 
 var copysize int64 = 4096
@@ -98,13 +99,21 @@ func main() {
         }
     }()
 
+    oldTime := time.Now()
     for {
         copied := <-progress
         bytes_copied += copied
         percent := (float64(bytes_copied) / float64(source_size)) * 100
+
+        timeDiff := time.Since(oldTime)
+        oldTime = oldTime.Add(timeDiff)
+        rate := int64(float64(copied) / timeDiff.Seconds())
+
         fmt.Printf("\r                                        \r")
-        fmt.Printf("progress: %s copied: %d%%                           ",
-            mlib.Bytes2human(bytes_copied), int64(math.Floor(percent)))
+        fmt.Printf("progress: %s copied: %d%% - %s/s                          ",
+            mlib.Bytes2human(bytes_copied),
+            int64(math.Floor(percent)),
+            mlib.Bytes2human(rate))
         if copied == 0 {
             break
         }
