@@ -17,6 +17,7 @@ import (
 
 var copysize int64 = 4096
 var progress_freq = 1000
+var rate_freq = 50
 
 // Copy file contents from source to destination.
 func copyFile(src, dst string, progress chan int64) (err error) {
@@ -81,6 +82,7 @@ func main() {
         dest = path.Join(dest, source_name)
     }
     // If it doesn't exist, we'll create it as a file. This is standard cp behaviour.
+    // FIXME: get confirmation if we're overwriting something
 
     // stat the source file to get its size
     if stat, err := os.Stat(source); err != nil {
@@ -100,20 +102,32 @@ func main() {
     }()
 
     oldTime := time.Now()
+    i := 0
+    rate := int64(0)
+    time_remaining := time.Duration(0)
     for {
         copied := <-progress
         bytes_copied += copied
         percent := (float64(bytes_copied) / float64(source_size)) * 100
+        remaining_bytes := source_size - bytes_copied
 
         timeDiff := time.Since(oldTime)
         oldTime = oldTime.Add(timeDiff)
-        rate := int64(float64(copied) / timeDiff.Seconds())
+        // Only recompute the rate every rate_freq iterations, just to buffer
+        // the updates to something readable.
+        if i++; i % rate_freq == 0 {
+            rate = int64(float64(copied) / timeDiff.Seconds())
+            if rate != 0 {
+                time_remaining = time.Duration( float64(remaining_bytes) / float64(rate) ) * time.Second
+            }
+        }
 
-        fmt.Printf("\r                                        \r")
-        fmt.Printf("progress: %s copied: %d%% - %s/s                          ",
+        fmt.Printf("\r                                                                                \r")
+        fmt.Printf("progress: %7s copied: %3d%% - %7s/s - %s remaining                         ",
             mlib.Bytes2human(bytes_copied),
             int64(math.Floor(percent)),
-            mlib.Bytes2human(rate))
+            mlib.Bytes2human(rate),
+            time_remaining)
         if copied == 0 {
             break
         }
