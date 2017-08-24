@@ -75,6 +75,9 @@ func main() {
     var bytes_copied int64 = 0
     var source_size int64 = 0
 
+    // Start and end time for the overall completion of the operation.
+    start_time := time.Now()
+
     // If dest is a directory, add the name of the file to it.
     if stat, err := os.Stat(dest); err == nil && stat.IsDir() {
         // dest is a directory
@@ -115,7 +118,7 @@ func main() {
         oldTime = oldTime.Add(timeDiff)
         // Only recompute the rate every rate_freq iterations, just to buffer
         // the updates to something readable.
-        if i++; i % rate_freq == 0 {
+        if i++; i % rate_freq == 0 || rate == 0 {
             rate = int64(float64(copied) / timeDiff.Seconds())
             if rate != 0 {
                 time_remaining = time.Duration( float64(remaining_bytes) / float64(rate) ) * time.Second
@@ -123,6 +126,7 @@ func main() {
         }
 
         fmt.Printf("\r                                                                                \r")
+        // FIXME: leave rate and time remaining blank until they're non-zero
         fmt.Printf("progress: %7s copied: %3d%% - %7s/s - %s remaining                         ",
             mlib.Bytes2human(bytes_copied),
             int64(math.Floor(percent)),
@@ -133,6 +137,8 @@ func main() {
         }
     }
     fmt.Printf("\ndone\n")
+    operation_duration := time.Since(start_time)
+    fmt.Printf("operation took %s\n", operation_duration)
 
     os.Exit(0)
 }
