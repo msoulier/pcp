@@ -127,7 +127,7 @@ func main() {
 
         fmt.Printf("\r                                                                                \r")
         // FIXME: leave rate and time remaining blank until they're non-zero
-        fmt.Printf("progress: %7s copied: %3d%% - %7s/s - %s remaining                         ",
+        fmt.Printf("progress: %7s copied: %3d%% - %7s/s - %s remaining   ",
             mlib.Bytes2human(bytes_copied),
             int64(math.Floor(percent)),
             mlib.Bytes2human(rate),
