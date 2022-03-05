@@ -61,7 +61,8 @@ func copyFile(src, dst string, progress chan int64) (err error) {
             bytes_copied = 0
         }
     }
-    err = out.Sync()
+    // FIXME: make conditional on a command-line option
+    //err = out.Sync()
     return
 }
 
