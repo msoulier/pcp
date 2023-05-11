@@ -15,11 +15,27 @@ import (
     "path/filepath"
     mlib "github.com/msoulier/mlib"
     "time"
+    "github.com/op/go-logging"
 )
 
-var copysize int64 = 4096
-var progress_freq = 1000
-var rate_freq = 50
+var (
+    copysize int64 = 4096
+    progress_freq = 1000
+    rate_freq = 50
+    log *logging.Logger = nil
+)
+
+func init() {
+    format := logging.MustStringFormatter(
+        `%{time:2006-01-02 15:04:05.000-0700} %{level} [%{shortfile}] %{message}`,
+    )
+    stderrBackend := logging.NewLogBackend(os.Stderr, "", 0)
+    stderrFormatter := logging.NewBackendFormatter(stderrBackend, format)
+    stderrBackendLevelled := logging.AddModuleLevel(stderrFormatter)
+    logging.SetBackend(stderrBackendLevelled)
+    stderrBackendLevelled.SetLevel(logging.INFO, "pcp")
+    log = logging.MustGetLogger("pcp")
+}
 
 // Copied from Roland Singer [roland.singer@desertbit.com].
 
@@ -109,28 +125,40 @@ func copyDir(src string, dst string, progress chan int64) (err error) {
 	if err != nil {
 		return err
 	}
+    log.Debugf("directory entries for %s: %v", src, entries)
 
-	for _, entry := range entries {
+	for i, entry := range entries {
+        log.Debugf("looping on direntry %d", i)
 		srcPath := filepath.Join(src, entry.Name())
 		dstPath := filepath.Join(dst, entry.Name())
+        log.Debugf("src = %s, dst = %s", srcPath, dstPath)
 
 		if entry.IsDir() {
+            log.Debugf("entry is a dir, recursion!")
 			err = copyDir(srcPath, dstPath, progress)
+            log.Debugf("copyDir returned %v", err)
 			if err != nil {
-				return
+                log.Errorf("copyDir returned an error: %s", err)
+				return err
 			}
 		} else {
 			// Skip symlinks.
-			if entry.Mode()&os.ModeSymlink != 0 {
+            // FIXME
+			if entry.Mode() & os.ModeSymlink != 0 {
+                log.Debugf("skipping symlink")
 				continue
 			}
 
+            log.Debugf("calling copyFile on %s, %s", srcPath, dstPath)
 			err = copyFile(srcPath, dstPath, progress)
+            log.Debugf("copyFile returned %v", err)
 			if err != nil {
+                log.Errorf("copyFile returned an error: %s", err)
 				return err
 			}
 		}
 	}
+    log.Debug("returning nil")
 	return nil
 }
 
@@ -185,6 +213,8 @@ func main() {
         if err != nil {
             panic(err)
         }
+        // And we're done
+        progress <- -1;
     }()
 
     oldTime := time.Now()
@@ -208,6 +238,15 @@ func main() {
             }
         }
 
+        if copied == 0 {
+            bytes_copied = 0
+            percent = 0
+            oldTime = time.Now()
+            operation_duration := time.Since(start_time)
+            fmt.Printf("operation took %s\n", operation_duration)
+        } else if copied == -1 {
+            break
+        }
         fmt.Printf("\r                                                                                \r")
         // FIXME: leave rate and time remaining blank until they're non-zero
         fmt.Printf("%s progress: %7s copied: %3d%% - %7s/s - %s remaining   ",
@@ -216,12 +255,7 @@ func main() {
             int64(math.Floor(percent)),
             mlib.Bytes2human(rate),
             time_remaining)
-        if copied == 0 {
-            break
-        }
     }
-    operation_duration := time.Since(start_time)
-    fmt.Printf("operation took %s\n", operation_duration)
 
     os.Exit(0)
 }
