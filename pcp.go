@@ -24,12 +24,12 @@ func copyFile(src, dst string, progress chan int64) (err error) {
     var bytes_copied int64 = 0
     in, err := os.Open(src)
     if err != nil {
-        return
+        return err
     }
     defer in.Close()
     out, err := os.Create(dst)
     if err != nil {
-        return
+        return err
     }
     // Error handling
     defer func() {
@@ -50,7 +50,7 @@ func copyFile(src, dst string, progress chan int64) (err error) {
                 progress <- 0
                 break
             } else {
-                return
+                return err
             }
         }
         bytes_copied += bytes
@@ -63,7 +63,7 @@ func copyFile(src, dst string, progress chan int64) (err error) {
     }
     // FIXME: make conditional on a command-line option
     //err = out.Sync()
-    return
+    return nil
 }
 
 func main() {
