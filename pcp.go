@@ -8,9 +8,11 @@ package main
 import (
     "os"
     "io"
+    "io/ioutil"
     "fmt"
     "math"
     "path"
+    "path/filepath"
     mlib "github.com/msoulier/mlib"
     "time"
 )
@@ -19,7 +21,13 @@ var copysize int64 = 4096
 var progress_freq = 1000
 var rate_freq = 50
 
-// Copy file contents from source to destination.
+// Copied from Roland Singer [roland.singer@desertbit.com].
+
+// copyFile copies the contents of the file named src to the file named
+// by dst. The file will be created if it does not already exist. If the
+// destination file exists, all it's contents will be replaced by the contents
+// of the source file. The file mode will be copied from the source and
+// the copied data is synced/flushed to stable storage.
 func copyFile(src, dst string, progress chan int64) (err error) {
     var bytes_copied int64 = 0
     in, err := os.Open(src)
@@ -66,6 +74,66 @@ func copyFile(src, dst string, progress chan int64) (err error) {
     return nil
 }
 
+// Copied from Roland Singer [roland.singer@desertbit.com].
+
+// copyDir recursively copies a directory tree, attempting to preserve
+// permissions.
+// Source directory must exist, destination directory must *not* exist.
+// Symlinks are ignored and skipped.
+func copyDir(src string, dst string, progress chan int64) (err error) {
+	src = filepath.Clean(src)
+	dst = filepath.Clean(dst)
+
+	si, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !si.IsDir() {
+		return fmt.Errorf("source is not a directory")
+	}
+
+	_, err = os.Stat(dst)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err == nil {
+		return fmt.Errorf("destination already exists")
+	}
+
+	err = os.MkdirAll(dst, si.Mode())
+	if err != nil {
+		return err
+	}
+
+	entries, err := ioutil.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			err = copyDir(srcPath, dstPath, progress)
+			if err != nil {
+				return
+			}
+		} else {
+			// Skip symlinks.
+			if entry.Mode()&os.ModeSymlink != 0 {
+				continue
+			}
+
+			err = copyFile(srcPath, dstPath, progress)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func main() {
     if len(os.Args) < 3 {
         os.Stderr.WriteString("Usage: pcp [options] <source> <destination>\n")
@@ -75,9 +143,11 @@ func main() {
     dest := os.Args[2]
     var bytes_copied int64 = 0
     var source_size int64 = 0
+    var dircopy bool = false
 
     // Start and end time for the overall completion of the operation.
     start_time := time.Now()
+
 
     // If dest is a directory, add the name of the file to it.
     if stat, err := os.Stat(dest); err == nil && stat.IsDir() {
@@ -85,21 +155,33 @@ func main() {
         source_name := path.Base(source)
         dest = path.Join(dest, source_name)
     }
-    // If it doesn't exist, we'll create it as a file. This is standard cp behaviour.
+    // If it doesn't exist, we'll create it as a file. This is standard cp
+    // behaviour.
     // FIXME: get confirmation if we're overwriting something
 
     // stat the source file to get its size
+    // If there is one source and one dest, check if the source is a
+    // directory.
+    // FIXME: allow multiple source files
     if stat, err := os.Stat(source); err != nil {
         panic(err)
     } else {
         source_size = stat.Size()
+        if stat.IsDir() {
+            dircopy = true
+        }
     }
 
     // A channel for comms with the copying goroutine
     progress := make(chan int64, 1)
 
     go func() {
-        err := copyFile(source, dest, progress)
+        var err error = nil
+        if dircopy {
+            err = copyDir(source, dest, progress)
+        } else {
+            err = copyFile(source, dest, progress)
+        }
         if err != nil {
             panic(err)
         }
@@ -137,7 +219,6 @@ func main() {
             break
         }
     }
-    fmt.Printf("\ndone\n")
     operation_duration := time.Since(start_time)
     fmt.Printf("operation took %s\n", operation_duration)
 
