@@ -44,11 +44,18 @@ func init() {
 // destination file exists, all it's contents will be replaced by the contents
 // of the source file. The file mode will be copied from the source and
 // the copied data is synced/flushed to stable storage.
-func copyFile(src, dst string, progress chan int64) (err error) {
+func copyFile(src, dst string, name chan string, progress chan int64) (err error) {
     var bytes_copied int64 = 0
     in, err := os.Open(src)
     if err != nil {
         return err
+    }
+    // Need the source file size
+    var source_size int64 = 0
+    if stat, err := os.Stat(src); err != nil {
+        panic(err)
+    } else {
+        source_size = stat.Size()
     }
     defer in.Close()
     out, err := os.Create(dst)
@@ -62,6 +69,10 @@ func copyFile(src, dst string, progress chan int64) (err error) {
             err = cerr
         }
     }()
+    // Report the file name
+    name <- src
+    // Report the file size
+    progress <- source_size
     i := 0
     for {
         var bytes int64 = 0
@@ -96,7 +107,7 @@ func copyFile(src, dst string, progress chan int64) (err error) {
 // permissions.
 // Source directory must exist, destination directory must *not* exist.
 // Symlinks are ignored and skipped.
-func copyDir(src string, dst string, progress chan int64) (err error) {
+func copyDir(src string, dst string, name chan string, progress chan int64) (err error) {
 	src = filepath.Clean(src)
 	dst = filepath.Clean(dst)
 
@@ -135,7 +146,7 @@ func copyDir(src string, dst string, progress chan int64) (err error) {
 
 		if entry.IsDir() {
             log.Debugf("entry is a dir, recursion!")
-			err = copyDir(srcPath, dstPath, progress)
+			err = copyDir(srcPath, dstPath, name, progress)
             log.Debugf("copyDir returned %v", err)
 			if err != nil {
                 log.Errorf("copyDir returned an error: %s", err)
@@ -150,7 +161,7 @@ func copyDir(src string, dst string, progress chan int64) (err error) {
 			}
 
             log.Debugf("calling copyFile on %s, %s", srcPath, dstPath)
-			err = copyFile(srcPath, dstPath, progress)
+			err = copyFile(srcPath, dstPath, name, progress)
             log.Debugf("copyFile returned %v", err)
 			if err != nil {
                 log.Errorf("copyFile returned an error: %s", err)
@@ -194,67 +205,98 @@ func main() {
     if stat, err := os.Stat(source); err != nil {
         panic(err)
     } else {
-        source_size = stat.Size()
         if stat.IsDir() {
             dircopy = true
         }
     }
 
-    // A channel for comms with the copying goroutine
-    progress := make(chan int64, 1)
+    // A channel for copying progress.
+    progress := make(chan int64)
+    // A channel for the name to be communicated.
+    name := make(chan string)
 
     go func() {
         var err error = nil
         if dircopy {
-            err = copyDir(source, dest, progress)
+            log.Debugf("copy goroutine: calling copyDir")
+            err = copyDir(source, dest, name, progress)
         } else {
-            err = copyFile(source, dest, progress)
+            log.Debugf("copy goroutine: calling copyFile")
+            err = copyFile(source, dest, name, progress)
         }
+        log.Debugf("and we're back: err = %v", err)
         if err != nil {
             panic(err)
         }
         // And we're done
-        progress <- -1;
+        log.Debugf("sending empty string to name channel")
+        name <- ""
+        log.Debugf("sending -1 to progress channel")
+        progress <- -1
     }()
 
     oldTime := time.Now()
     i := 0
     rate := int64(0)
     time_remaining := time.Duration(0)
+    filename := <-name
+    fmt.Printf("copying file name %s\n", filename)
+    var percent float64 = 0
+    var remaining_bytes int64 = 0
     for {
+        // if bytes_copied is zero, the first number is the source_size
+        log.Debug("blocking on progress channel")
         copied := <-progress
-        bytes_copied += copied
-        percent := (float64(bytes_copied) / float64(source_size)) * 100
-        remaining_bytes := source_size - bytes_copied
-
-        timeDiff := time.Since(oldTime)
-        oldTime = oldTime.Add(timeDiff)
-        // Only recompute the rate every rate_freq iterations, just to buffer
-        // the updates to something readable.
-        if i++; i % rate_freq == 0 || rate == 0 {
-            rate = int64(float64(copied) / timeDiff.Seconds())
-            if rate != 0 {
-                time_remaining = time.Duration( float64(remaining_bytes) / float64(rate) ) * time.Second
-            }
-        }
-
-        if copied == 0 {
-            bytes_copied = 0
-            percent = 0
-            oldTime = time.Now()
-            operation_duration := time.Since(start_time)
-            fmt.Printf("operation took %s\n", operation_duration)
-        } else if copied == -1 {
+        log.Debugf("copied is %d", copied)
+        if copied < 0 {
             break
+        }
+        if source_size == 0 {
+            source_size = copied
+            copied = 0
+            continue
+        }
+        if copied == 0 {
+            percent = 100
+            remaining_bytes = 0
+            time_remaining = time.Duration(0)
+        } else if copied > 0 {
+            bytes_copied += copied
+            percent = (float64(bytes_copied) / float64(source_size)) * 100
+            remaining_bytes = source_size - bytes_copied
+
+            timeDiff := time.Since(oldTime)
+            oldTime = oldTime.Add(timeDiff)
+            // Only recompute the rate every rate_freq iterations, just to
+            // buffer the updates to something readable.
+            if i++; i % rate_freq == 0 || rate == 0 {
+                rate = int64(float64(copied) / timeDiff.Seconds())
+                if rate != 0 {
+                    time_remaining = time.Duration( float64(remaining_bytes) / float64(rate) ) * time.Second
+                }
+            }
         }
         fmt.Printf("\r                                                                                \r")
         // FIXME: leave rate and time remaining blank until they're non-zero
-        fmt.Printf("%s progress: %7s copied: %3d%% - %7s/s - %s remaining   ",
-            source,
+        fmt.Printf("%s: %7s copied: %3d%% - %7s/s - %s remaining   ",
+            filename,
             mlib.Bytes2human(bytes_copied),
             int64(math.Floor(percent)),
             mlib.Bytes2human(rate),
             time_remaining)
+
+        if copied == 0 {
+            log.Debugf("copied is %d", copied)
+            bytes_copied = 0
+            percent = 0
+            source_size = 0
+            oldTime = time.Now()
+            operation_duration := time.Since(start_time)
+            fmt.Printf("operation took %s\n", operation_duration)
+            log.Debug("blocking on name channel")
+            filename = <-name
+            log.Debugf("===> new name '%s'", filename)
+        }
     }
 
     os.Exit(0)
