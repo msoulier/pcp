@@ -278,8 +278,7 @@ func main() {
         }
         fmt.Printf("\r                                                                                \r")
         // FIXME: leave rate and time remaining blank until they're non-zero
-        fmt.Printf("%s: %7s copied: %3d%% - %7s/s - %s remaining   ",
-            filename,
+        fmt.Printf("   %8s copied: %3d%% - %10s/s - %s remaining   ",
             mlib.Bytes2human(bytes_copied),
             int64(math.Floor(percent)),
             mlib.Bytes2human(rate),
@@ -292,10 +291,12 @@ func main() {
             source_size = 0
             oldTime = time.Now()
             operation_duration := time.Since(start_time)
-            fmt.Printf("operation took %s\n", operation_duration)
+            operation_duration = operation_duration.Round(time.Millisecond)
+            fmt.Printf("%s\n", operation_duration)
             log.Debug("blocking on name channel")
             filename = <-name
             log.Debugf("===> new name '%s'", filename)
+            fmt.Printf("%s:\n", filename)
         }
     }
 
