@@ -187,12 +187,12 @@ func main() {
     // Start and end time for the overall completion of the operation.
     start_time := time.Now()
 
-
     // If dest is a directory, add the name of the file to it.
     if stat, err := os.Stat(dest); err == nil && stat.IsDir() {
-        // dest is a directory
+        log.Debugf("destination %s is a directory", dest)
         source_name := path.Base(source)
         dest = path.Join(dest, source_name)
+        log.Debugf("new destination is %s", dest)
     }
     // If it doesn't exist, we'll create it as a file. This is standard cp
     // behaviour.
