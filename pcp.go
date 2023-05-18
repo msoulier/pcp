@@ -16,25 +16,20 @@ import (
     mlib "github.com/msoulier/mlib"
     "time"
     "github.com/op/go-logging"
+    "flag"
 )
 
 var (
-    copysize int64 = 4096
+    copysize int64 = 16384
     progress_freq = 1000
     rate_freq = 50
     log *logging.Logger = nil
+    debug bool = false
 )
 
 func init() {
-    format := logging.MustStringFormatter(
-        `%{time:2006-01-02 15:04:05.000-0700} %{level} [%{shortfile}] %{message}`,
-    )
-    stderrBackend := logging.NewLogBackend(os.Stderr, "", 0)
-    stderrFormatter := logging.NewBackendFormatter(stderrBackend, format)
-    stderrBackendLevelled := logging.AddModuleLevel(stderrFormatter)
-    logging.SetBackend(stderrBackendLevelled)
-    stderrBackendLevelled.SetLevel(logging.INFO, "pcp")
-    log = logging.MustGetLogger("pcp")
+    flag.Int64Var(&copysize, "copysize", 16384, "Internal copy buffer size")
+    flag.BoolVar(&debug, "debug", false, "Debug logging")
 }
 
 // Copied from Roland Singer [roland.singer@desertbit.com].
@@ -173,13 +168,43 @@ func copyDir(src string, dst string, name chan string, progress chan int64) (err
 	return nil
 }
 
-func main() {
-    if len(os.Args) < 3 {
-        os.Stderr.WriteString("Usage: pcp [options] <source> <destination>\n")
+func config_logging() {
+    format := logging.MustStringFormatter(
+        `%{time:2006-01-02 15:04:05.000-0700} %{level} [%{shortfile}] %{message}`,
+    )
+    stderrBackend := logging.NewLogBackend(os.Stderr, "", 0)
+    stderrFormatter := logging.NewBackendFormatter(stderrBackend, format)
+    stderrBackendLevelled := logging.AddModuleLevel(stderrFormatter)
+    logging.SetBackend(stderrBackendLevelled)
+    if debug {
+        stderrBackendLevelled.SetLevel(logging.DEBUG, "pcp")
+    } else {
+        stderrBackendLevelled.SetLevel(logging.INFO, "pcp")
+    }
+    log = logging.MustGetLogger("pcp")
+}
+
+func parse_args() (string, string) {
+    usage := "Usage: pcp [options] <source> <destination>\n"
+    flag.Parse()
+    args := flag.Args()
+    if debug {
+        fmt.Fprintf(os.Stderr, "DEBUG logging enabled\n")
+        fmt.Fprintf(os.Stderr, "args is %v\n", args)
+    }
+    if len(args) < 2 {
+        os.Stderr.WriteString(usage)
+        flag.PrintDefaults()
         os.Exit(1)
     }
-    source := os.Args[1]
-    dest := os.Args[2]
+    source := args[0]
+    dest := args[1]
+    return source, dest
+}
+
+func main() {
+    source, dest := parse_args()
+    config_logging()
     var bytes_copied int64 = 0
     var source_size int64 = 0
     var dircopy bool = false
